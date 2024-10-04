@@ -14,6 +14,7 @@ Saunas can be dangerous if used without care or without the right security measu
 ## Installation
 
 ### PIP
+`pip install -r requirements.txt`
 `pip install huum`
 
 ### Poetry
@@ -21,7 +22,7 @@ Saunas can be dangerous if used without care or without the right security measu
 
 ## Quick guide
 ```python
-from huum import Huum
+from huum.huum import Huum
 
 # Usage with env vars
 huum = Huum()

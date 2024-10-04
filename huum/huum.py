@@ -1,8 +1,8 @@
 from typing import Any, Optional
 from urllib.parse import urljoin
 
-import aiohttp
-from aiohttp import ClientResponse
+import requests
+from requests.auth import HTTPBasicAuth
 
 from huum.const import SaunaStatus
 from huum.exceptions import (
@@ -13,6 +13,7 @@ from huum.exceptions import (
     SafetyException,
 )
 from huum.schemas import HuumStatusResponse
+from huum.settings import settings
 
 API_BASE = "https://api.huum.eu/action/"
 API_HOME_BASE = f"{API_BASE}/home/"
@@ -38,28 +39,26 @@ class Huum:
     min_temp = 40
     max_temp = 110
 
-    session: aiohttp.ClientSession
-
     def __init__(
         self,
-        username: str,
-        password: str,
-        session: Optional[aiohttp.ClientSession] = None,
+        username: Optional[str] = settings.huum_username,
+        password: Optional[str] = settings.huum_password,
     ) -> None:
-        if session:
-            self.session = session
+        if not username or not password:
+            raise ValueError(
+                "No username or password provided either by the environment nor explicitly"
+            )
+        self.auth = HTTPBasicAuth(username, password)
 
-        self.auth = aiohttp.BasicAuth(username, password)
-
-    async def _check_door(self) -> None:
+    def _check_door(self) -> None:
         """
         Check if the door is closed, if not, raise an exception
         """
-        status = await self.status()
+        status = self.status()
         if not status.door_closed:
             raise SafetyException("Can not start sauna when door is open")
 
-    async def _make_call(self, method: str, url: str, json: Any | None = None) -> ClientResponse:
+    def _make_call(self, method: str, url: str, json: Any | None = None) -> requests.Response:
         call_args = {
             "url": url,
             "auth": self.auth,
@@ -69,7 +68,7 @@ class Huum:
 
         call_request = getattr(self.session, method.lower())
 
-        response: ClientResponse = await call_request(**call_args)
+        response: Response = call_request(**call_args)
 
         try:
             response.raise_for_status()
@@ -85,7 +84,7 @@ class Huum:
 
         return response
 
-    async def turn_on(self, temperature: int, safety_override: bool = False) -> HuumStatusResponse:
+    def turn_on(self, temperature: int, safety_override: bool = False) -> HuumStatusResponse:
         """
         Turns on the sauna at a given temperature
 
@@ -102,17 +101,17 @@ class Huum:
             )
 
         if not safety_override:
-            await self._check_door()
+            self._check_door()
 
         url = urljoin(API_HOME_BASE, "start")
         data = {"targetTemperature": temperature}
 
-        response = await self._make_call("post", url, json=data)
-        json_data = await response.json()
+        response = self._make_call("post", url, json=data)
+        json_data = response.json()
 
         return HuumStatusResponse.from_dict(json_data)
 
-    async def turn_off(self) -> HuumStatusResponse:
+    def turn_off(self) -> HuumStatusResponse:
         """
         Turns off the sauna
 
@@ -122,12 +121,12 @@ class Huum:
         """
         url = urljoin(API_HOME_BASE, "stop")
 
-        response = await self._make_call("post", url)
-        json_data = await response.json()
+        response = self._make_call("post", url)
+        json_data = response.json()
 
         return HuumStatusResponse.from_dict(json_data)
 
-    async def set_temperature(
+    def set_temperature(
         self, temperature: int, safety_override: bool = False
     ) -> HuumStatusResponse:
         """
@@ -144,9 +143,9 @@ class Huum:
         Returns:
             A `HuumStatusResponse` from the Huum API
         """
-        return await self.turn_on(temperature, safety_override)
+        return self.turn_on(temperature, safety_override)
 
-    async def status(self) -> HuumStatusResponse:
+    def status(self) -> HuumStatusResponse:
         """
         Get the status of the Sauna
 
@@ -155,12 +154,12 @@ class Huum:
         """
         url = urljoin(API_HOME_BASE, "status")
 
-        response = await self._make_call("get", url)
-        json_data = await response.json()
+        response = self._make_call("get", url)
+        json_data = response.json()
 
         return HuumStatusResponse.from_dict(json_data)
 
-    async def status_from_status_or_stop(self) -> HuumStatusResponse:
+    def status_from_status_or_stop(self) -> HuumStatusResponse:
         """
         Get status from the status endpoint or from stop event if that is in option
 
@@ -178,13 +177,13 @@ class Huum:
         Returns:
             A `HuumStatusResponse` from the Huum API
         """
-        status_response = await self.status()
+        status_response = self.status()
         if status_response.status == SaunaStatus.ONLINE_NOT_HEATING:
-            status_response = await self.turn_off()
+            status_response = self.turn_off()
         return status_response
 
-    async def open_session(self) -> None:
-        self.session = aiohttp.ClientSession()
+    def open_session(self) -> None:
+        self.session = requests.Session()
 
-    async def close_session(self) -> None:
-        await self.session.close()
+    def close_session(self) -> None:
+        self.session.close()
